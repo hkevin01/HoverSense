@@ -1,0 +1,16 @@
+# CODEOWNERS
+# Each line is a pattern followed by one or more owners.
+# Owners are notified for review when a PR modifies matching files.
+
+# Global fallback — all files
+* @yourusername
+
+# ML model and rule engine — require careful review
+src/engine/ @yourusername
+
+# Tests — always require owner sign-off
+tests/ @yourusername
+
+# Security-sensitive: the event bus and module wiring
+src/utils/helpers.js @yourusername
+src/main.js @yourusername

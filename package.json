@@ -1,0 +1,13 @@
+{
+  "name": "hoversense",
+  "version": "1.0.0",
+  "description": "Behavioral profiling simulator using hover micro-interactions",
+  "scripts": {
+    "test": "node tests/ml-model.test.js",
+    "start": "npx serve . -p 3000",
+    "dev": "npx live-server --port=3000 --open=/index.html"
+  },
+  "keywords": ["behavioral-profiling", "ml", "adtech", "heatmap", "privacy", "simulation"],
+  "author": "",
+  "license": "MIT"
+}

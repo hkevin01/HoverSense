@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HoverSense — Behavioral Profiling Simulator</title>
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="stylesheet" href="styles/dashboard.css" />
+</head>
+<body>
+  <!-- ======================================================
+       TOP BANNER
+  ====================================================== -->
+  <header class="site-header">
+    <div class="header-brand">
+      <span class="logo-icon">⬡</span>
+      <span class="logo-text">HoverSense</span>
+      <span class="logo-tagline">Behavioral Profiling Simulator</span>
+    </div>
+    <div class="header-controls">
+      <button id="btn-reset" class="btn btn-secondary">Reset Session</button>
+      <button id="btn-heatmap" class="btn btn-accent">Toggle Heatmap</button>
+      <div class="session-badge">
+        <span class="dot pulse"></span>
+        <span id="session-event-count">0</span> events
+      </div>
+    </div>
+  </header>
+
+  <!-- ======================================================
+       MAIN LAYOUT: CONTENT GRID (left) + DASHBOARD (right)
+  ====================================================== -->
+  <main class="app-layout">
+
+    <!-- ---- CONTENT GRID ---- -->
+    <section class="content-section">
+      <div class="section-label">
+        <span>↓ Hover over cards to build your profile</span>
+        <span id="tracking-status" class="tracking-on">● Tracking Active</span>
+      </div>
+
+      <div class="content-grid" id="content-grid">
+
+        <!-- TRAVEL -->
+        <article class="card trackable" data-category="travel" data-subcategory="destinations"
+          data-label="Patagonia Adventure" data-id="c1">
+          <div class="card-img" style="background:linear-gradient(135deg,#1a6b4a,#2ec4b6)">
+            <span class="card-emoji">🏔️</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge travel">Travel</span>
+            <h3>Patagonia Adventure Trek</h3>
+            <p>Remote trails at the end of the world</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- TECHNOLOGY -->
+        <article class="card trackable" data-category="technology" data-subcategory="gadgets"
+          data-label="Next-Gen AI Chip" data-id="c2">
+          <div class="card-img" style="background:linear-gradient(135deg,#0d1b2a,#1b4f72)">
+            <span class="card-emoji">🤖</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge technology">Technology</span>
+            <h3>Next-Gen AI Processing Chip</h3>
+            <p>Neural compute at 300 TOPS on device</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- OUTDOORS -->
+        <article class="card trackable" data-category="outdoors" data-subcategory="camping"
+          data-label="Ultra-Light Tent" data-id="c3">
+          <div class="card-img" style="background:linear-gradient(135deg,#2d6a4f,#74c69d)">
+            <span class="card-emoji">⛺</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge outdoors">Outdoors</span>
+            <h3>Ultra-Light Camping Shelter</h3>
+            <p>750g, 4-season, wind-rated 70mph</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- AUTOMOTIVE -->
+        <article class="card trackable" data-category="automotive" data-subcategory="motorcycles"
+          data-label="Adventure Motorcycle" data-id="c4">
+          <div class="card-img" style="background:linear-gradient(135deg,#1c1c2e,#e94560)">
+            <span class="card-emoji">🏍️</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge automotive">Automotive</span>
+            <h3>Adventure Motorcycle 2025</h3>
+            <p>1200cc twin, 300km range, full ADV</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- HEALTH -->
+        <article class="card trackable" data-category="health" data-subcategory="fitness"
+          data-label="VO2 Max Training" data-id="c5">
+          <div class="card-img" style="background:linear-gradient(135deg,#f72585,#7209b7)">
+            <span class="card-emoji">💪</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge health">Health</span>
+            <h3>Zone 2 Training Protocol</h3>
+            <p>Optimize cardiovascular longevity</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- FINANCE -->
+        <article class="card trackable" data-category="finance" data-subcategory="investing"
+          data-label="Crypto Portfolio" data-id="c6">
+          <div class="card-img" style="background:linear-gradient(135deg,#f7931a,#1a1a2e)">
+            <span class="card-emoji">📈</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge finance">Finance</span>
+            <h3>Crypto Portfolio Strategy</h3>
+            <p>Risk-adjusted returns in volatile markets</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- FOOD -->
+        <article class="card trackable" data-category="food" data-subcategory="cuisine"
+          data-label="Ramen Recipe" data-id="c7">
+          <div class="card-img" style="background:linear-gradient(135deg,#c9184a,#ff758f)">
+            <span class="card-emoji">🍜</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge food">Food</span>
+            <h3>Tonkotsu Ramen from Scratch</h3>
+            <p>18-hour broth, chashu pork, soft egg</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- FASHION -->
+        <article class="card trackable" data-category="fashion" data-subcategory="streetwear"
+          data-label="Limited Drop" data-id="c8">
+          <div class="card-img" style="background:linear-gradient(135deg,#2b2d42,#ef233c)">
+            <span class="card-emoji">👟</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge fashion">Fashion</span>
+            <h3>Collab Limited Drop — 48h Only</h3>
+            <p>Exclusive streetwear × fine art fusion</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- SPORTS -->
+        <article class="card trackable" data-category="sports" data-subcategory="extreme"
+          data-label="Base Jumping" data-id="c9">
+          <div class="card-img" style="background:linear-gradient(135deg,#03045e,#00b4d8)">
+            <span class="card-emoji">🪂</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge sports">Sports</span>
+            <h3>Base Jumping: Beginner Course</h3>
+            <p>The ultimate adrenaline discipline</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- ENTERTAINMENT -->
+        <article class="card trackable" data-category="entertainment" data-subcategory="gaming"
+          data-label="Open World RPG" data-id="c10">
+          <div class="card-img" style="background:linear-gradient(135deg,#10002b,#7b2d8b)">
+            <span class="card-emoji">🎮</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge entertainment">Entertainment</span>
+            <h3>Open World RPG — 200h Gameplay</h3>
+            <p>Deep lore, branching narrative, no HUD</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- TRAVEL 2 -->
+        <article class="card trackable" data-category="travel" data-subcategory="luxury"
+          data-label="Maldives Resort" data-id="c11">
+          <div class="card-img" style="background:linear-gradient(135deg,#006994,#48cae4)">
+            <span class="card-emoji">🏝️</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge travel">Travel</span>
+            <h3>Overwater Bungalow — Maldives</h3>
+            <p>Private reef, butler service, all-inclusive</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- HEALTH 2 -->
+        <article class="card trackable" data-category="health" data-subcategory="nutrition"
+          data-label="Longevity Diet" data-id="c12">
+          <div class="card-img" style="background:linear-gradient(135deg,#52b788,#081c15)">
+            <span class="card-emoji">🥗</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge health">Health</span>
+            <h3>Longevity Nutrition Protocol</h3>
+            <p>mTOR, autophagy, and caloric timing</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- TECHNOLOGY 2 -->
+        <article class="card trackable" data-category="technology" data-subcategory="vr"
+          data-label="Spatial Computing" data-id="c13">
+          <div class="card-img" style="background:linear-gradient(135deg,#4361ee,#4cc9f0)">
+            <span class="card-emoji">🥽</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge technology">Technology</span>
+            <h3>Spatial Computing Headset Review</h3>
+            <p>Mixed reality at 120fps per eye</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- AUTOMOTIVE 2 -->
+        <article class="card trackable" data-category="automotive" data-subcategory="electric"
+          data-label="EV Range Test" data-id="c14">
+          <div class="card-img" style="background:linear-gradient(135deg,#e63946,#457b9d)">
+            <span class="card-emoji">⚡</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge automotive">Automotive</span>
+            <h3>800km EV Road Trip — Real Range</h3>
+            <p>Cold weather, highway charging stops mapped</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- FINANCE 2 -->
+        <article class="card trackable" data-category="finance" data-subcategory="realestate"
+          data-label="FIRE Strategy" data-id="c15">
+          <div class="card-img" style="background:linear-gradient(135deg,#f4a261,#264653)">
+            <span class="card-emoji">🏠</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge finance">Finance</span>
+            <h3>FIRE at 40 — Real Estate Strategy</h3>
+            <p>Cashflow, equity, and early retirement</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- OUTDOORS 2 -->
+        <article class="card trackable" data-category="outdoors" data-subcategory="surfing"
+          data-label="Big Wave Surfing" data-id="c16">
+          <div class="card-img" style="background:linear-gradient(135deg,#0077b6,#90e0ef)">
+            <span class="card-emoji">🏄</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge outdoors">Outdoors</span>
+            <h3>Big Wave Surfing — Pipeline</h3>
+            <p>40ft faces, hold-down training, wipeouts</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- ENTERTAINMENT 2 -->
+        <article class="card trackable" data-category="entertainment" data-subcategory="music"
+          data-label="Music Production" data-id="c17">
+          <div class="card-img" style="background:linear-gradient(135deg,#ff6b6b,#feca57)">
+            <span class="card-emoji">🎧</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge entertainment">Entertainment</span>
+            <h3>Beatmaking Masterclass — From Zero</h3>
+            <p>808s, samples, arrangement, release</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+        <!-- SPORTS 2 -->
+        <article class="card trackable" data-category="sports" data-subcategory="climbing"
+          data-label="Free Solo Climbing" data-id="c18">
+          <div class="card-img" style="background:linear-gradient(135deg,#6a0572,#ab83a1)">
+            <span class="card-emoji">🧗</span>
+          </div>
+          <div class="card-body">
+            <span class="cat-badge sports">Sports</span>
+            <h3>Free Solo Climbing — El Capitan</h3>
+            <p>No ropes, 3000ft vertical, mental training</p>
+          </div>
+          <div class="hover-indicator"></div>
+        </article>
+
+      </div><!-- /.content-grid -->
+
+      <!-- Heatmap canvas overlay -->
+      <canvas id="heatmap-canvas" class="heatmap-canvas hidden"></canvas>
+    </section>
+
+    <!-- ---- LIVE DASHBOARD ---- -->
+    <aside class="dashboard-panel" id="dashboard-panel">
+
+      <!-- Profile Header -->
+      <div class="dash-section profile-header">
+        <div class="profile-avatar" id="profile-avatar">?</div>
+        <div class="profile-meta">
+          <div class="profile-id">Anonymous User</div>
+          <div class="profile-completeness">
+            Profile: <span id="profile-pct">0%</span>
+            <div class="completeness-bar"><div class="completeness-fill" id="completeness-fill"></div></div>
+          </div>
+        </div>
+        <div class="engagement-ring" id="engagement-ring" title="Engagement Score">
+          <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#1e2030" stroke-width="3"/>
+          <circle id="eng-circle" cx="18" cy="18" r="15.9" fill="none" stroke="#4cc9f0" stroke-width="3"
+            stroke-dasharray="0 100" stroke-linecap="round" transform="rotate(-90 18 18)"/></svg>
+          <span id="eng-score">0</span>
+        </div>
+      </div>
+
+      <!-- Top Interests -->
+      <div class="dash-section">
+        <div class="dash-section-title">Top Interests</div>
+        <div id="interests-list" class="interests-list">
+          <div class="empty-state">Start hovering to reveal interests…</div>
+        </div>
+      </div>
+
+      <!-- ML Predictions -->
+      <div class="dash-section">
+        <div class="dash-section-title">ML Predictions
+          <span class="ml-badge">Logistic Regression</span>
+        </div>
+        <div class="ml-grid" id="ml-grid">
+          <div class="ml-card">
+            <div class="ml-label">Click Probability</div>
+            <div class="ml-value" id="ml-click">—</div>
+            <div class="ml-bar"><div class="ml-bar-fill click-fill" id="ml-click-bar"></div></div>
+          </div>
+          <div class="ml-card">
+            <div class="ml-label">Purchase Intent</div>
+            <div class="ml-value" id="ml-purchase">—</div>
+            <div class="ml-bar"><div class="ml-bar-fill purchase-fill" id="ml-purchase-bar"></div></div>
+          </div>
+          <div class="ml-card">
+            <div class="ml-label">High-Value User</div>
+            <div class="ml-value" id="ml-highval">—</div>
+            <div class="ml-bar"><div class="ml-bar-fill highval-fill" id="ml-highval-bar"></div></div>
+          </div>
+          <div class="ml-card">
+            <div class="ml-label">Churn Risk</div>
+            <div class="ml-value" id="ml-churn">—</div>
+            <div class="ml-bar"><div class="ml-bar-fill churn-fill" id="ml-churn-bar"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personality Traits -->
+      <div class="dash-section">
+        <div class="dash-section-title">Predicted Personality</div>
+        <div id="traits-list" class="traits-list">
+          <div class="trait-row" data-trait="novelty">
+            <span class="trait-name">Novelty-Seeking</span>
+            <div class="trait-bar-bg"><div class="trait-bar-fill" id="trait-novelty"></div></div>
+            <span class="trait-val" id="trait-novelty-val">0</span>
+          </div>
+          <div class="trait-row" data-trait="risk">
+            <span class="trait-name">Risk Tolerance</span>
+            <div class="trait-bar-bg"><div class="trait-bar-fill" id="trait-risk"></div></div>
+            <span class="trait-val" id="trait-risk-val">0</span>
+          </div>
+          <div class="trait-row" data-trait="analytical">
+            <span class="trait-name">Analytical</span>
+            <div class="trait-bar-bg"><div class="trait-bar-fill" id="trait-analytical"></div></div>
+            <span class="trait-val" id="trait-analytical-val">0</span>
+          </div>
+          <div class="trait-row" data-trait="impulsive">
+            <span class="trait-name">Impulsive</span>
+            <div class="trait-bar-bg"><div class="trait-bar-fill" id="trait-impulsive"></div></div>
+            <span class="trait-val" id="trait-impulsive-val">0</span>
+          </div>
+          <div class="trait-row" data-trait="social">
+            <span class="trait-name">Social</span>
+            <div class="trait-bar-bg"><div class="trait-bar-fill" id="trait-social"></div></div>
+            <span class="trait-val" id="trait-social-val">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ad Recommendations -->
+      <div class="dash-section">
+        <div class="dash-section-title">Generated Ad Targets</div>
+        <div id="ads-list" class="ads-list">
+          <div class="empty-state">Profile too sparse for targeting…</div>
+        </div>
+      </div>
+
+      <!-- Activity Timeline -->
+      <div class="dash-section">
+        <div class="dash-section-title">Interaction Timeline</div>
+        <div id="timeline" class="timeline">
+          <div class="empty-state">No interactions yet…</div>
+        </div>
+      </div>
+
+      <!-- Explainability Panel -->
+      <div class="dash-section">
+        <div class="dash-section-title">Why This Profile?</div>
+        <div id="explain-panel" class="explain-panel">
+          <div class="empty-state">Hover over a card to see reasoning…</div>
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- ======================================================
+       TOOLTIP
+  ====================================================== -->
+  <div id="hover-tooltip" class="hover-tooltip hidden">
+    <div class="tt-category" id="tt-cat"></div>
+    <div class="tt-duration" id="tt-dur">0.0s</div>
+    <div class="tt-count" id="tt-cnt">Visit #1</div>
+  </div>
+
+  <!-- ======================================================
+       SCRIPTS (ES Modules)
+  ====================================================== -->
+  <script type="module" src="src/utils/helpers.js"></script>
+  <script type="module" src="src/tracker/hover-tracker.js"></script>
+  <script type="module" src="src/engine/rule-engine.js"></script>
+  <script type="module" src="src/engine/ml-model.js"></script>
+  <script type="module" src="src/engine/profile-builder.js"></script>
+  <script type="module" src="src/dashboard/heatmap.js"></script>
+  <script type="module" src="src/dashboard/dashboard.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

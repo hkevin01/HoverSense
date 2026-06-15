@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run tests
+        run: npm test
+
+  lint:
+    name: Check for obvious issues
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify no node_modules committed
+        run: |
+          if [ -d "node_modules" ]; then
+            echo "ERROR: node_modules directory is committed. Add it to .gitignore."
+            exit 1
+          fi
+
+      - name: Verify no .env files committed
+        run: |
+          if find . -name "*.env" -not -path "./.git/*" | grep -q .; then
+            echo "ERROR: .env file found in repository."
+            exit 1
+          fi
+
+      - name: Check ES Module syntax (no require() calls)
+        run: |
+          if grep -r "require(" src/ --include="*.js"; then
+            echo "ERROR: CommonJS require() found in src/. Use ES Module import instead."
+            exit 1
+          fi
+          echo "OK: All imports use ES Module syntax."
