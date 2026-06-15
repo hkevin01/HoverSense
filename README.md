@@ -32,6 +32,7 @@
 - [Rule Engine - Deep Dive](#rule-engine)
 - [Personality Trait Model](#personality-trait-model)
 - [Algorithms and Design Decisions](#algorithms-and-design-decisions)
+- [Formulas and Algorithms — Deep Reference](#formulas-and-algorithms--deep-reference)
 - [API Reference](#api-reference)
 - [Data Structures](#data-structures)
 - [Running and Testing](#running-tests)
@@ -513,6 +514,359 @@ Mouse velocity is inherently noisy at the hardware level. Operating systems deli
 ### Why an Event Bus Instead of Direct Module Calls?
 
 The event bus implements the **Observer pattern**. Direct calls between modules — for example `dashboard.update(profile)` called from `profile-builder.js` — would create tight coupling: the profile builder would need to import and manage references to every consumer. With a bus, adding a new visualization requires zero changes to the pipeline: just subscribe to `profile:updated`. This is architecturally identical to the event streaming infrastructure used in real ad-tech systems, where multiple downstream services (attribution, audience building, frequency capping) subscribe to the same behavioral event stream without coupling to each other.
+
+---
+
+## Formulas and Algorithms — Deep Reference
+
+This section provides an in-depth walkthrough of the five core mathematical formulas and algorithms that power HoverSense. Each one is explained from first principles: what the formula computes, why it was chosen, how its parameters are tuned, how it differs from alternatives, and exactly where it appears in the source code. Reading this section will give you a complete mathematical picture of the system.
+
+The five formulas are not independent — they form a processing chain. Raw DOM events enter the Velocity Formula, which feeds into the Rule Engine Scoring Formula. Both feed into the Feature Normalization formulas, which feed into the Logistic Regression model, which uses the Sigmoid Function as its output activation. The Heatmap Score formula runs as a parallel visualization path on the same raw events.
+
+```mermaid
+flowchart LR
+    DOM[Raw DOM Events] --> VF[Formula 1 - Cursor Velocity]
+    VF --> RE[Formula 2 - Rule Engine Scoring]
+    VF --> FN[Formula 3 - Feature Normalization]
+    RE --> FN
+    FN --> LR[Formula 4 - Logistic Regression]
+    LR --> SF[Formula 5 - Sigmoid Activation]
+    DOM --> HF[Formula 6 - Heatmap Score - parallel path]
+    SF --> Output[Probability Outputs]
+    HF --> Canvas[Canvas Visualization]
+```
+
+> [!NOTE]
+> The diagram shows the processing order: Velocity (F1) and Rule Engine (F2) are computed first from raw events, then Feature Normalization (F3) converts their outputs into ML-ready inputs, then Logistic Regression (F4) and Sigmoid (F5) produce the final probabilities. The Heatmap Score (F6) runs as an independent visualization path and does not affect the ML pipeline.
+
+---
+
+### Formula 1 — Cursor Velocity
+
+**What it computes:** The average speed of the mouse cursor in pixels per second during a single hover event. This value is the primary behavioral discriminator between deliberate reading (slow) and mindless scanning (fast).
+
+**The formula:**
+
+```
+avgVelocity = totalPixelDistance / totalSampleTime
+
+where:
+  totalPixelDistance = sum of sqrt((x2 - x1)^2 + (y2 - y1)^2) for each 50ms sample
+  totalSampleTime    = number of samples * 50ms (in seconds)
+```
+
+The distance between consecutive mouse positions is the standard Euclidean distance formula. For a sequence of N position samples `(x0,y0), (x1,y1), ..., (xN,yN)`, the total path length is:
+
+```
+pathLength = sum from i=1 to N of sqrt((xi - x(i-1))^2 + (yi - y(i-1))^2)
+```
+
+**Why Euclidean distance and not Manhattan distance?** Manhattan distance (`|dx| + |dy|`) is computationally cheaper (no square root) but overestimates diagonal movements by up to 41%. A user moving the cursor diagonally at 100 px/s true speed would register as 141 px/s in Manhattan distance. Euclidean distance is the geometrically correct measurement of physical cursor speed regardless of direction, which is what we actually want for behavioral inference.
+
+The table below shows how raw velocity readings map to behavioral states and their effect on the scoring pipeline.
+
+| # | Velocity Range | Classification | Interest Effect | Engagement Delta |
+|---|---------------|---------------|----------------|-----------------|
+| <sub>1</sub> | <sub>0 to 80 px/s</sub> | <sub>Deliberate reading</sub> | <sub>Strong positive signal</sub> | <sub>+10</sub> |
+| <sub>2</sub> | <sub>80 to 250 px/s</sub> | <sub>Normal browsing</sub> | <sub>Mild positive signal</sub> | <sub>+2</sub> |
+| <sub>3</sub> | <sub>250 to 600 px/s</sub> | <sub>Scanning</sub> | <sub>Neutral signal</sub> | <sub>0</sub> |
+| <sub>4</sub> | <sub>600 px/s or more</sub> | <sub>Fast scan / disengaged</sub> | <sub>Negative signal</sub> | <sub>-5</sub> |
+| <sub>5</sub> | <sub>Any - hover under 80ms</sub> | <sub>Micro-glitch filtered</sub> | <sub>Discarded entirely</sub> | <sub>0</sub> |
+
+> [!NOTE]
+> Row 5 is critical: any hover event shorter than 80ms is discarded before velocity is even computed. This threshold removes the noise caused by cursor drift when moving between adjacent elements. Without this filter, every cursor transit across a card boundary would register as a high-velocity hover event, completely corrupting the behavioral signal.
+
+**How it differs from alternatives:** A simpler approach would be to use instantaneous velocity from a single `mousemove` event. This fails in practice because the OS delivers mouse events in bursts — a 16ms animation frame may deliver 3-5 batched events simultaneously, creating artificial velocity spikes. The 50ms sampling window averages across these bursts. A longer window (e.g., 200ms) would smooth the signal further but would miss genuine velocity changes within short hovers (400-800ms). The 50ms window is the empirically validated middle ground.
+
+**Where in source:** `src/tracker/hover-tracker.js` — the `mousemove` handler, throttled via `Date.now()` comparison against the last sample timestamp.
+
+---
+
+### Formula 2 — Rule Engine Composite Scoring
+
+**What it computes:** A deterministic, threshold-based composite score delta from a single hover event, decomposed into three independent dimensions: interest, intent, and engagement. Each dimension is scored by different signal types and they do not mix.
+
+**The formula:**
+
+```
+interestDelta  = durationScore(duration) + transitionBonus(fromCat, toCat)
+intentDelta    = repeatScore(repeatCount)
+engagementDelta = velocityScore(avgVelocity)
+
+where:
+  durationScore(d):
+    d > 6000 ms  -> +25   (deep focus)
+    d > 3000 ms  -> +15   (long hover)
+    d > 1500 ms  -> +8    (medium hover)
+    d > 400 ms   -> +3    (short glance)
+    d <= 400 ms  -> 0     (noise filtered)
+
+  repeatScore(r):
+    r >= 3       -> +20   (strong purchase intent)
+    r == 2       -> +12   (consideration signal)
+    r == 1       -> 0     (first visit, no intent signal)
+
+  velocityScore(v):
+    v < 80 px/s  -> +10   (deliberate)
+    v < 250 px/s -> +2    (browsing)
+    v < 600 px/s -> 0     (scanning)
+    v >= 600     -> -5    (disengaged)
+
+  transitionBonus(from, to):
+    lookup in TRANSITION_BONUS map -> +4 to +8 (known pairs)
+    unknown pair -> 0
+```
+
+**Why three separate dimensions?** Interest, intent, and engagement measure fundamentally different user states. Interest measures *topic affinity* — how much does this user care about travel content. Intent measures *purchase proximity* — is this user actively considering a transaction. Engagement measures *quality of attention* — is the user reading carefully or glancing. Mixing these into a single score would create a number that means nothing: a deeply engaged user with zero purchase intent would score identically to a mildly engaged user with strong purchase intent if the dimensions were summed. Keeping them separate allows the ML model and the ad targeting engine to use each signal for its appropriate purpose.
+
+The table below compares how the three scoring dimensions are driven and what downstream systems they feed.
+
+| # | Dimension | Driven By | Score Range | Used By | Resets On |
+|---|-----------|-----------|-------------|---------|-----------|
+| <sub>1</sub> | <sub>Interest (per category)</sub> | <sub>Duration + transition bonus</sub> | <sub>0 to ~200 per category</sub> | <sub>Ad targeting, trait inference</sub> | <sub>Session reset only</sub> |
+| <sub>2</sub> | <sub>Intent (global)</sub> | <sub>Repeat count</sub> | <sub>0 to 100 normalized</sub> | <sub>Purchase probability feature</sub> | <sub>Session reset only</sub> |
+| <sub>3</sub> | <sub>Engagement (global)</sub> | <sub>Cursor velocity</sub> | <sub>0 to 100 normalized</sub> | <sub>High-value user feature, churn risk</sub> | <sub>Session reset only</sub> |
+
+> [!NOTE]
+> All three dimensions accumulate monotonically upward (except engagement which can be reduced by fast-scan events). They represent session totals, not per-event values. The `interestDelta`, `intentDelta`, and `engagementDelta` values computed per event are added to the running totals in `profile-builder.js` after each hover.
+
+**How it differs from alternatives:** A machine learning model could theoretically learn these thresholds from data rather than hand-coding them. The reason for manual thresholds is threefold: (1) the thresholds are interpretable — users can read "hover over 3 seconds = strong interest" in the Explain panel and understand it; (2) there is no labeled training data for HoverSense's synthetic card grid; (3) deterministic rules are easier to audit for bias and correctness than learned weights. The rule engine is closer to a business rules engine than to an ML model, and that is intentional.
+
+**Where in source:** `src/engine/rule-engine.js` — `scoreHoverEvent()` function.
+
+---
+
+### Formula 3 — Feature Normalization and Min-Max Scaling
+
+**What it computes:** Transforms raw session statistics into the [0, 1] range required by the logistic regression model. Eight different normalization strategies are applied, each chosen for the statistical properties of its input variable.
+
+**The core min-max normalization formula:**
+
+```
+normalizedValue = clamp((rawValue - min) / (max - min), 0, 1)
+
+For most features where min = 0:
+normalizedValue = clamp(rawValue / cap, 0, 1)
+```
+
+**The velocity inversion formula (Feature 2):**
+
+```
+normVelocity = clamp(1 - (avgVelocity / MAX_VELOCITY), 0, 1)
+
+where MAX_VELOCITY = 800 px/s
+
+Example:
+  avgVelocity = 0 px/s   -> normVelocity = 1.0  (maximum engagement)
+  avgVelocity = 400 px/s -> normVelocity = 0.5  (neutral)
+  avgVelocity = 800 px/s -> normVelocity = 0.0  (maximum disengagement)
+```
+
+**The cyclical time-of-day encoding formula (Feature 6):**
+
+```
+normTimeOfDay = sin(2 * pi * hourOfDay / 24)
+
+Example values:
+  hour 0  (midnight)  -> sin(0)      = 0.000
+  hour 6  (6 AM)      -> sin(pi/2)   = 1.000
+  hour 12 (noon)      -> sin(pi)     = 0.000
+  hour 18 (6 PM)      -> sin(3pi/2)  = -1.000
+  hour 23 (11 PM)     -> sin(23pi/12) = -0.259  (close to midnight 0.000)
+```
+
+The cyclical encoding preserves the crucial property that hour 23 and hour 0 are close together in the encoded space, not 23 units apart as a raw integer would suggest.
+
+The table below shows all 8 features, their normalization formula, and the rationale for each specific choice.
+
+| # | Feature Index | Raw Input | Normalization Formula | Cap Value | Rationale |
+|---|--------------|-----------|----------------------|-----------|-----------|
+| <sub>1</sub> | <sub>[0] Duration</sub> | <sub>ms 0 to unlimited</sub> | <sub>rawMs / 60000 clamped to 1</sub> | <sub>60 s</sub> | <sub>60 s is engagement saturation - beyond this, marginal signal diminishes</sub> |
+| <sub>2</sub> | <sub>[1] Frequency</sub> | <sub>cards 0 to 18</sub> | <sub>uniqueCards / 18</sub> | <sub>18 cards</sub> | <sub>18 is total card count - linear breadth fraction</sub> |
+| <sub>3</sub> | <sub>[2] Velocity</sub> | <sub>px/s 0 to 800+</sub> | <sub>1 minus (v / 800) clamped to 1</sub> | <sub>800 px/s</sub> | <sub>Inverted so slow cursor = high score; 800 px/s is observed maximum in practice</sub> |
+| <sub>4</sub> | <sub>[3] Repeat Rate</sub> | <sub>ratio 0.0 to 1.0</sub> | <sub>repeatHovers / totalHovers</sub> | <sub>1.0 (self-normalized)</sub> | <sub>Already a proportion - no further scaling needed</sub> |
+| <sub>5</sub> | <sub>[4] Category Spread</sub> | <sub>categories 0 to 10</sub> | <sub>uniqueCategories / 10</sub> | <sub>10 categories</sub> | <sub>10 is total distinct category count in the card grid</sub> |
+| <sub>6</sub> | <sub>[5] Top Intensity</sub> | <sub>score 0 to ~120</sub> | <sub>topScore / 100</sub> | <sub>100 points</sub> | <sub>Realistic sessions peak around 100-120 - allows slight overshoot to 1.0+ then clamped</sub> |
+| <sub>7</sub> | <sub>[6] Time of Day</sub> | <sub>hour 0 to 23</sub> | <sub>sin(2 * pi * h / 24)</sub> | <sub>Cyclical - no cap</sub> | <sub>Sine encoding preserves circular adjacency - midnight and 11 PM stay close</sub> |
+| <sub>8</sub> | <sub>[7] Session Length</sub> | <sub>ms 0 to unlimited</sub> | <sub>sessionAgeMs / 300000 clamped to 1</sub> | <sub>300 s</sub> | <sub>5-minute cap represents a full engaged browsing session</sub> |
+
+> [!IMPORTANT]
+> Without normalization, features with large raw ranges (duration in milliseconds: 0-60,000) would numerically dominate features with small ranges (repeat rate: 0-1.0). The logistic regression dot product multiplies each feature by its weight — a 60,000ms duration value multiplied by even a small weight would overwhelm a 0.8 repeat rate multiplied by a large weight. Normalization is not optional; it is what makes the weight matrix interpretable and the model trainable.
+
+**How it differs from alternatives:** Z-score standardization (`(x - mean) / stddev`) is the other common normalization approach. Z-score is better when the feature distribution is Gaussian and when outliers are common. Min-max scaling is better when the feature has hard physical bounds (which all HoverSense features do) and when the [0, 1] range has a specific meaning (which it does here — 0 means zero engagement, 1 means maximum engagement). The cap-based min-max approach used here is equivalent to min-max scaling where min=0 and max is the domain-specific cap value.
+
+**Where in source:** `src/engine/ml-model.js` — `extractFeatures()` function.
+
+---
+
+### Formula 4 — Logistic Regression Inference
+
+**What it computes:** Given the 8-element normalized feature vector, computes a linear combination (weighted sum plus bias) for each of the 4 output dimensions, then passes the result through the sigmoid function to produce a probability. This is the core ML inference step.
+
+**The formula:**
+
+```
+z = (w[0]*x[0]) + (w[1]*x[1]) + ... + (w[7]*x[7]) + b
+  = dot(w, x) + b
+
+probability = sigmoid(z) = 1 / (1 + e^(-z))
+
+Applied 4 times independently (one per output):
+  clickProb    = sigmoid(dot(W_click,    x) + b_click)
+  purchaseProb = sigmoid(dot(W_purchase, x) + b_purchase)
+  highValue    = sigmoid(dot(W_highval,  x) + b_highval)
+  churnRisk    = sigmoid(dot(W_churn,    x) + b_churn)
+```
+
+Each row of the weight matrix W is an independent logistic regression classifier. The four outputs do not interact — each is computed independently from the same feature vector. This is called **one-vs-rest multi-label classification**: each output answers a binary yes/no question independently.
+
+The table below shows the complete weight matrix with all 32 weights and 4 biases, organized so you can read the relative importance of each feature for each output.
+
+| # | Feature | w for Click | w for Purchase | w for High-Value | w for Churn Risk |
+|---|---------|------------|---------------|-----------------|-----------------|
+| <sub>1</sub> | <sub>[0] Total Duration</sub> | <sub>+0.82</sub> | <sub>+0.70</sub> | <sub>+0.90</sub> | <sub>-0.40</sub> |
+| <sub>2</sub> | <sub>[1] Card Frequency</sub> | <sub>+1.10</sub> | <sub>+0.80</sub> | <sub>+1.30</sub> | <sub>-0.70</sub> |
+| <sub>3</sub> | <sub>[2] Velocity (inverted)</sub> | <sub>+0.45</sub> | <sub>+0.30</sub> | <sub>+0.50</sub> | <sub>+0.90</sub> |
+| <sub>4</sub> | <sub>[3] Repeat Rate</sub> | <sub>+1.30</sub> | <sub>+1.50</sub> | <sub>+0.90</sub> | <sub>-1.20</sub> |
+| <sub>5</sub> | <sub>[4] Category Spread</sub> | <sub>+0.60</sub> | <sub>+0.40</sub> | <sub>+1.40</sub> | <sub>-0.50</sub> |
+| <sub>6</sub> | <sub>[5] Top Intensity</sub> | <sub>+0.95</sub> | <sub>+1.20</sub> | <sub>+0.80</sub> | <sub>-0.80</sub> |
+| <sub>7</sub> | <sub>[6] Time of Day</sub> | <sub>+0.10</sub> | <sub>+0.05</sub> | <sub>+0.15</sub> | <sub>-0.05</sub> |
+| <sub>8</sub> | <sub>[7] Session Length</sub> | <sub>+0.30</sub> | <sub>+0.20</sub> | <sub>+0.70</sub> | <sub>-0.60</sub> |
+| <sub>9</sub> | <sub>Bias term</sub> | <sub>-2.20</sub> | <sub>-2.60</sub> | <sub>-2.80</sub> | <sub>+0.80</sub> |
+
+> [!NOTE]
+> Reading the Churn Risk column (last data column) reveals the behavioral logic embedded in the weights: high velocity (w[2] = +0.90) increases churn risk, while repeat rate (w[3] = -1.20), top intensity (w[5] = -0.80), and session length (w[7] = -0.60) all strongly decrease it. A user with long sessions, high repeat visits, and deep topic intensity has almost zero churn risk — the model captures this relationship through the sign and magnitude of its weights.
+
+The table below shows worked examples of the dot product calculation for a hypothetical "engaged user" and a "scanner" to make the math concrete and followable.
+
+| # | Feature | Engaged User Raw | Engaged Normalized | Scanner Raw | Scanner Normalized |
+|---|---------|-----------------|-------------------|-------------|-------------------|
+| <sub>1</sub> | <sub>[0] Duration</sub> | <sub>45,000 ms</sub> | <sub>0.75</sub> | <sub>3,000 ms</sub> | <sub>0.05</sub> |
+| <sub>2</sub> | <sub>[1] Frequency</sub> | <sub>15 cards</sub> | <sub>0.83</sub> | <sub>4 cards</sub> | <sub>0.22</sub> |
+| <sub>3</sub> | <sub>[2] Velocity</sub> | <sub>40 px/s</sub> | <sub>0.95</sub> | <sub>700 px/s</sub> | <sub>0.13</sub> |
+| <sub>4</sub> | <sub>[3] Repeat Rate</sub> | <sub>0.6 ratio</sub> | <sub>0.60</sub> | <sub>0.0 ratio</sub> | <sub>0.00</sub> |
+| <sub>5</sub> | <sub>[4] Category Spread</sub> | <sub>7 categories</sub> | <sub>0.70</sub> | <sub>3 categories</sub> | <sub>0.30</sub> |
+| <sub>6</sub> | <sub>[5] Top Intensity</sub> | <sub>85 points</sub> | <sub>0.85</sub> | <sub>10 points</sub> | <sub>0.10</sub> |
+| <sub>7</sub> | <sub>[6] Time of Day</sub> | <sub>2 PM (hour 14)</sub> | <sub>0.00</sub> | <sub>2 PM (hour 14)</sub> | <sub>0.00</sub> |
+| <sub>8</sub> | <sub>[7] Session Length</sub> | <sub>240 s</sub> | <sub>0.80</sub> | <sub>30 s</sub> | <sub>0.10</sub> |
+
+> [!NOTE]
+> For the Engaged User, the click probability dot product computes as: (0.82 * 0.75) + (1.10 * 0.83) + (0.45 * 0.95) + (1.30 * 0.60) + (0.60 * 0.70) + (0.95 * 0.85) + (0.10 * 0.00) + (0.30 * 0.80) - 2.20 = 0.615 + 0.913 + 0.428 + 0.780 + 0.420 + 0.808 + 0.000 + 0.240 - 2.20 = 2.004. Applying sigmoid: 1 / (1 + e^(-2.004)) = approximately 0.88, or 88% click probability. For the Scanner, the same computation yields approximately 0.11, or 11%.
+
+**How it differs from alternatives:** A decision tree would split the same feature space using axis-aligned cuts (e.g., "if repeat rate > 0.3 AND duration > 30s then high probability"). Decision trees are slightly more interpretable for discrete cases but produce discontinuous probability estimates — probability jumps sharply at each split boundary. Logistic regression produces smooth, continuous probability curves across the feature space, which is more appropriate for behavioral probabilities that should change gradually as signals accumulate.
+
+**Where in source:** `src/engine/ml-model.js` — `predict()` function calls `dotProduct()` from `helpers.js` then applies `sigmoid()`.
+
+---
+
+### Formula 5 — Sigmoid Activation Function
+
+**What it computes:** Squashes any real number (positive or negative, any magnitude) into the open interval (0, 1). This is the function that turns the raw logistic regression output into a valid probability. It is the reason logistic regression is called "logistic" — the sigmoid is the inverse of the logit (log-odds) function.
+
+**The formula:**
+
+```
+sigmoid(z) = 1 / (1 + e^(-z))
+
+Key properties:
+  sigmoid(0)   = 0.500  (maximum uncertainty)
+  sigmoid(2)   = 0.880  (fairly high probability)
+  sigmoid(4)   = 0.982  (very high probability)
+  sigmoid(-2)  = 0.119  (fairly low probability)
+  sigmoid(-4)  = 0.018  (very low probability)
+  sigmoid(+inf) -> 1.0  (saturates at certainty)
+  sigmoid(-inf) -> 0.0  (saturates at impossibility)
+```
+
+**Why the sigmoid and not another activation?** The sigmoid has a unique property that makes it the natural choice for binary classification: its output is mathematically interpretable as a probability under the Bernoulli distribution. If you model the log-odds of an event as a linear function of features, the resulting probability is exactly the sigmoid. This is not a heuristic choice — it is the mathematically derived correct function for logistic regression. The alternatives:
+
+- **ReLU** (`max(0, z)`): outputs values from 0 to infinity — not a valid probability
+- **Tanh** (`(e^z - e^(-z)) / (e^z + e^(-z))`): outputs (-1, 1) — requires remapping to (0, 1)
+- **Softmax**: correct for multi-class (mutually exclusive) classification; wrong for multi-label (independent) classification like HoverSense where all four outputs can simultaneously be high
+
+The table below shows the sigmoid output at key z-values and what they mean in the context of HoverSense predictions.
+
+| # | z Value (dot product + bias) | sigmoid(z) Output | HoverSense Interpretation |
+|---|-----------------------------|--------------------|--------------------------|
+| <sub>1</sub> | <sub>-3.0 or less</sub> | <sub>0.05 or less</sub> | <sub>Very low probability - new session, no engagement signals yet</sub> |
+| <sub>2</sub> | <sub>-2.0</sub> | <sub>0.12</sub> | <sub>Low probability - typical starting state with negative bias</sub> |
+| <sub>3</sub> | <sub>0.0</sub> | <sub>0.50</sub> | <sub>Maximum uncertainty - features exactly cancel the bias</sub> |
+| <sub>4</sub> | <sub>+1.0</sub> | <sub>0.73</sub> | <sub>Moderate-high probability - meaningful engagement accumulated</sub> |
+| <sub>5</sub> | <sub>+2.0</sub> | <sub>0.88</sub> | <sub>High probability - strong behavioral signals across multiple features</sub> |
+| <sub>6</sub> | <sub>+3.0 or more</sub> | <sub>0.95 or more</sub> | <sub>Very high probability - saturating toward certainty</sub> |
+
+> [!IMPORTANT]
+> The negative bias values in the weight matrix (-2.20 for click, -2.60 for purchase, -2.80 for high-value) are specifically chosen so that a new session with zero feature values produces z values near -2.2 to -2.8, which sigmoid maps to 0.06-0.11 (6-11% probability). This is the "pessimistic start" design: the model must be convinced by accumulating positive feature signals before it predicts high probability. Without this negative bias, a user who hovers a single card once would immediately register at 50% click probability, which would be meaningless.
+
+**Gradient of sigmoid (for understanding weight learning):** The sigmoid's derivative is `sigmoid(z) * (1 - sigmoid(z))`, which is maximized at z=0 (gradient = 0.25) and approaches 0 at large |z|. This "vanishing gradient" property is why deep neural networks moved away from sigmoid activations toward ReLU — gradients vanish during backpropagation through many layers. For a single-layer logistic regression, this is not a problem; the gradient is applied directly to the weights without passing through multiple layers.
+
+**Where in source:** `src/utils/helpers.js` — `sigmoid(z)` function, used in `src/engine/ml-model.js`.
+
+---
+
+### Formula 6 — Heatmap Score and Log Normalization
+
+**What it computes:** A visual intensity score for each content card that represents cumulative hover engagement. This score is displayed as a color gradient overlay on the canvas. The formula uses a logarithmic scale because hover duration values span several orders of magnitude (hundreds to tens of thousands of milliseconds) — a linear scale would make short hovers invisible.
+
+**The formula:**
+
+```
+rawHeatScore(card) = log10(totalDurationMs + 1) * 10 + (repeatCount * 5)
+
+where:
+  log10(totalDurationMs + 1)  the +1 prevents log10(0) = -infinity for unvisited cards
+  * 10                        scales the log range [0, ~4.5] to [0, ~45]
+  repeatCount * 5             adds a flat bonus per return visit
+
+normalizedScore(card) = rawHeatScore(card) / maxRawScoreInSession
+
+finalOpacity = normalizedScore * MAX_OPACITY  (MAX_OPACITY = 0.85)
+```
+
+**Why logarithmic scaling?** Consider two users: one hovers a card for 500ms, another hovers for 50,000ms. Their raw durations differ by a factor of 100, but their genuine interest difference is not 100x — the first user showed mild interest, the second showed deep focus. A linear heat scale would render the 500ms hover as nearly invisible (1% of max) next to the 50,000ms hover. The logarithmic scale compresses this dynamic range: log10(500) = 2.70 and log10(50,000) = 4.70, a ratio of 1.74x instead of 100x. This makes all engaged hovers visually distinguishable on the heatmap regardless of absolute duration.
+
+The table below shows how raw durations map through the log formula to heat scores, compared to what a linear formula would produce.
+
+| # | Total Duration | Repeat Count | Log Heat Score | Linear Heat Score | Visual Outcome |
+|---|--------------|-------------|---------------|------------------|----------------|
+| <sub>1</sub> | <sub>0 ms (unvisited)</sub> | <sub>0</sub> | <sub>0.0</sub> | <sub>0.0</sub> | <sub>No heat overlay - transparent</sub> |
+| <sub>2</sub> | <sub>500 ms</sub> | <sub>1</sub> | <sub>27.7 + 5 = 32.7</sub> | <sub>5 + 5 = 10</sub> | <sub>Faint warm color visible</sub> |
+| <sub>3</sub> | <sub>3,000 ms</sub> | <sub>1</sub> | <sub>34.8 + 5 = 39.8</sub> | <sub>30 + 5 = 35</sub> | <sub>Moderate heat</sub> |
+| <sub>4</sub> | <sub>10,000 ms</sub> | <sub>2</sub> | <sub>40.0 + 10 = 50.0</sub> | <sub>100 + 10 = 110</sub> | <sub>Strong heat color</sub> |
+| <sub>5</sub> | <sub>50,000 ms</sub> | <sub>3</sub> | <sub>47.0 + 15 = 62.0</sub> | <sub>500 + 15 = 515</sub> | <sub>Maximum heat - fully saturated</sub> |
+
+> [!NOTE]
+> Compare rows 2 and 5 in the Log column: the 100x duration difference (500ms vs 50,000ms) produces only a 1.9x difference in heat score (32.7 vs 62.0). This is the power of log scaling — both hovers are visually visible and distinguishable. In the Linear column, the same comparison produces a 51x difference (10 vs 515), which would make row 2 nearly invisible. The log formula keeps every engaged hover visually legible.
+
+**Why add `+1` before the log?** `log10(0)` is negative infinity, which would produce NaN values in canvas rendering for unvisited cards. Adding 1 before the log ensures `log10(1) = 0`, so unvisited cards receive a score of exactly 0.0, which maps to a fully transparent overlay. This is a standard numerical stability technique called "log smoothing" or "Laplace smoothing" applied to continuous values.
+
+**How it differs from alternatives:**
+- **Linear scale:** Works for narrow-range data but loses visual resolution when durations span 100x or more.
+- **Square root scale:** Intermediate compression between linear and log; used in some visualization tools. Less intuitive than log for time-based data.
+- **Quantile normalization:** Ranks all scores and maps ranks to colors. Produces visually even distributions but loses the meaning of the actual score values — all cards would show heat even if most hovers were very short.
+- **Z-score coloring:** Would produce negative scores for below-average cards, requiring special handling for unvisited cards.
+
+The log formula was chosen because it has a clear physical interpretation (each additional order of magnitude of engagement produces a proportionally smaller visual increment), it handles zero naturally with the +1 smoothing, and it produces visually appealing heatmaps where differences between cards are legible across the full range of realistic session durations.
+
+**Where in source:** `src/dashboard/heatmap.js` — `updateHeatScore()` and `redrawHeatmap()` functions.
+
+---
+
+### How the Six Formulas Work Together — End-to-End Example
+
+The following table traces a single concrete hover event through all six formulas to show how they interact. The scenario: user hovers a Travel card for 4,200ms, cursor moves at 60 px/s average, it is the second visit to this card, the previous card was Outdoors, and the session is 90 seconds old at 3 PM.
+
+| # | Formula Applied | Input Values | Computation | Output |
+|---|----------------|-------------|-------------|--------|
+| <sub>1</sub> | <sub>Velocity (F1)</sub> | <sub>cursor path 252 px over 4.2 s</sub> | <sub>252 / 4.2 = 60 px/s</sub> | <sub>avgVelocity = 60 px/s - classified as Deliberate</sub> |
+| <sub>2</sub> | <sub>Rule Engine (F2)</sub> | <sub>duration 4200 ms, velocity 60, repeat 2, from Outdoors</sub> | <sub>+15 interest (long) + 8 transition bonus (outdoors to travel) + 10 engagement (deliberate) + 12 intent (2nd visit)</sub> | <sub>interestDelta +23, intentDelta +12, engagementDelta +10</sub> |
+| <sub>3</sub> | <sub>Feature Normalization (F3)</sub> | <sub>session stats after this event</sub> | <sub>totalDuration 42000ms / 60000 = 0.70; velocity 1 - (60/800) = 0.93; repeatRate 0.33; etc.</sub> | <sub>Feature vector [0.70, 0.44, 0.93, 0.33, 0.30, 0.62, 0.00, 0.30]</sub> |
+| <sub>4</sub> | <sub>Logistic Regression (F4)</sub> | <sub>feature vector above + click weight row</sub> | <sub>dot product = 0.574 + 0.484 + 0.419 + 0.429 + 0.180 + 0.589 + 0.000 + 0.090 - 2.20 = 0.565</sub> | <sub>z_click = 0.565</sub> |
+| <sub>5</sub> | <sub>Sigmoid (F5)</sub> | <sub>z = 0.565</sub> | <sub>1 / (1 + e^(-0.565)) = 1 / (1 + 0.568) = 0.638</sub> | <sub>clickProb = 63.8%</sub> |
+| <sub>6</sub> | <sub>Heatmap Score (F6)</sub> | <sub>totalDuration 4200 ms, repeatCount 2</sub> | <sub>log10(4201) * 10 + (2 * 5) = 36.2 + 10 = 46.2</sub> | <sub>rawHeatScore = 46.2 - normalized to session max for canvas opacity</sub> |
+
+> [!NOTE]
+> This worked example shows that a single hover event simultaneously drives all six formulas. Formulas 1 and 2 fire first (synchronously in the hover-tracker and rule-engine), then Formula 3 aggregates the session stats, then Formulas 4 and 5 compute the probability, and Formula 6 runs independently for the canvas overlay. The total computation time for all six steps is under 1ms in a modern browser.
 
 ---
 
