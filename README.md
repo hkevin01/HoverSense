@@ -151,31 +151,31 @@ The architecture was deliberately chosen to mirror real ad-tech event streaming 
 
 ```mermaid
 graph TB
-    subgraph DOM_Layer ["DOM Layer"]
-        Cards[Content Cards - .trackable elements]
+    subgraph DOM_Layer[DOM Layer]
+        Cards[Content Cards - trackable elements]
         Canvas[Heatmap Canvas - absolute overlay]
     end
-    subgraph Capture_Layer ["Capture Layer"]
-        HT[hover-tracker.js - mouseenter and mouseleave - velocity sampler]
+    subgraph Capture_Layer[Capture Layer]
+        HT[hover-tracker.js - mouseenter and mouseleave]
     end
-    subgraph Event_Bus ["Event Bus via helpers.js"]
-        E1[hover:complete event]
-        E2[profile:updated event]
+    subgraph Event_Bus[Event Bus - helpers.js]
+        E1[hover:complete]
+        E2[profile:updated]
     end
-    subgraph Processing_Layer ["Processing Layer"]
-        RE[rule-engine.js - Stateless heuristics - O1 per event]
-        ML[ml-model.js - Logistic regression - 8 features to 4 outputs]
-        PB[profile-builder.js - Session state - Aggregation]
+    subgraph Processing_Layer[Processing Layer]
+        RE[rule-engine.js - stateless heuristics]
+        ML[ml-model.js - logistic regression]
+        PB[profile-builder.js - session state]
     end
-    subgraph Render_Layer ["Render Layer"]
-        DB[dashboard.js - requestAnimationFrame - batched DOM updates]
-        HM[heatmap.js - Canvas radial gradients - heat score overlay]
+    subgraph Render_Layer[Render Layer]
+        DB[dashboard.js - requestAnimationFrame]
+        HM[heatmap.js - canvas radial gradients]
     end
     Cards -->|mouseenter and mouseleave| HT
     HT -->|emits| E1
     E1 -->|consumed by| PB
-    PB -->|calls synchronously| RE
-    PB -->|calls synchronously| ML
+    PB -->|calls| RE
+    PB -->|calls| ML
     PB -->|emits| E2
     E2 -->|consumed by| DB
     E2 -->|consumed by| HM
@@ -260,25 +260,25 @@ The diagram below shows how the 8 input features flow through the weight matrix 
 
 ```mermaid
 graph LR
-    subgraph Features ["Feature Vector - 8 normalized inputs"]
-        F0["[0] Total Duration - norm to 60 s cap"]
-        F1["[1] Card Frequency - unique cards div 18"]
-        F2["[2] Cursor Velocity - inverted, norm to 800 px/s"]
-        F3["[3] Repeat Rate - revisits div total hovers"]
-        F4["[4] Category Spread - unique cats div 10"]
-        F5["[5] Top Intensity - top score div 100"]
-        F6["[6] Time of Day - sin cyclical encoding"]
-        F7["[7] Session Length - age div 300 s cap"]
+    subgraph Features[Feature Vector - 8 normalized inputs]
+        F0[f0 - Total Duration - norm to 60s]
+        F1[f1 - Card Frequency - unique div 18]
+        F2[f2 - Cursor Velocity - inverted norm]
+        F3[f3 - Repeat Rate - revisits div total]
+        F4[f4 - Category Spread - unique cats div 10]
+        F5[f5 - Top Intensity - top score div 100]
+        F6[f6 - Time of Day - sine cyclical]
+        F7[f7 - Session Length - age div 300s]
     end
-    subgraph Model_Core ["Logistic Regression - W dot x plus b then sigmoid"]
-        W["Weight Matrix - 4 rows x 8 cols plus bias"]
-        S["Sigmoid - 1 div 1 plus e to the -z"]
+    subgraph ModelCore[Logistic Regression - W dot x plus b]
+        W[Weight Matrix - 4 x 8 plus bias]
+        S[Sigmoid - 1 div 1 plus exp of neg z]
     end
-    subgraph Outputs ["Probability Outputs - all in range 0 to 1"]
-        O1["Click Probability - bias -2.20"]
-        O2["Purchase Probability - bias -2.60"]
-        O3["High-Value User - bias -2.80"]
-        O4["Churn Risk - bias +0.80"]
+    subgraph Outputs[Probability Outputs - 0 to 1]
+        O1[Click Probability - bias neg 2.20]
+        O2[Purchase Probability - bias neg 2.60]
+        O3[High-Value User - bias neg 2.80]
+        O4[Churn Risk - bias pos 0.80]
     end
     F0 --> W
     F1 --> W
