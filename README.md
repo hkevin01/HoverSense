@@ -38,6 +38,50 @@ HoverSense solves six core behavioral inference problems. Each problem represent
 
 ---
 
+## Profiling and Ad Targeting Techniques — Industry Reference
+
+The table below covers the major profiling and ad targeting techniques used across the real advertising industry. HoverSense simulates a subset of these (marked with a checkmark) but understanding the full landscape explains why the techniques chosen here were chosen — and what a production system would layer on top. Each technique is described in terms of what it collects, how it is used, what algorithm or model typically powers it, and its privacy implications.
+
+| # | Technique | Type | What It Collects |
+|---|-----------|------|-----------------|
+| <sub>1</sub> | <sub>**Hover Telemetry**</sub> | <sub>Passive behavioral</sub> | <sub>Cursor position, hover duration, entry/exit direction, velocity per element</sub> |
+| <sub>2</sub> | <sub>**Click Stream Analysis**</sub> | <sub>Passive behavioral</sub> | <sub>Sequence of page visits, time-on-page, click targets, bounce patterns</sub> |
+| <sub>3</sub> | <sub>**Scroll Depth Tracking**</sub> | <sub>Passive behavioral</sub> | <sub>How far down a page a user scrolls; whether they scroll back up (re-read signal)</sub> |
+| <sub>4</sub> | <sub>**Search Query History**</sub> | <sub>Explicit intent</sub> | <sub>Keywords typed into search engines; query reformulations; result click positions</sub> |
+| <sub>5</sub> | <sub>**Purchase and Cart History**</sub> | <sub>Explicit transaction</sub> | <sub>Items purchased, abandoned carts, price sensitivity, category repeat buying</sub> |
+| <sub>6</sub> | <sub>**Demographic Inference**</sub> | <sub>Derived profile</sub> | <sub>Age, gender, income bracket, education level — inferred from behavior not directly collected</sub> |
+| <sub>7</sub> | <sub>**Psychographic Profiling**</sub> | <sub>Derived profile</sub> | <sub>Big Five personality traits, values, attitudes — inferred from content consumption patterns</sub> |
+| <sub>8</sub> | <sub>**Contextual Targeting**</sub> | <sub>Page-level signal</sub> | <sub>Keywords and topics of the current page content, not the user's history</sub> |
+| <sub>9</sub> | <sub>**Lookalike Modeling**</sub> | <sub>Audience expansion</sub> | <sub>No new data collected — finds new users who match existing converters statistically</sub> |
+| <sub>10</sub> | <sub>**Device Fingerprinting**</sub> | <sub>Identity resolution</sub> | <sub>Browser, OS, fonts, canvas hash, WebGL renderer — persistent ID without cookies</sub> |
+| <sub>11</sub> | <sub>**Cross-Site Tracking**</sub> | <sub>Identity resolution</sub> | <sub>Third-party cookies, pixel beacons, link decoration — ties behavior across unrelated domains</sub> |
+| <sub>12</sub> | <sub>**Real-Time Bidding (RTB)**</sub> | <sub>Auction mechanism</sub> | <sub>User profile data transmitted to hundreds of bidders in under 100ms per page load</sub> |
+
+> [!NOTE]
+> Rows 1, 7, and 12 are the techniques most directly simulated by HoverSense. Row 1 (hover telemetry) is the raw input. Row 7 (psychographic profiling) is the trait inference output. Row 12 (RTB) is the ad recommendation output. All others represent the broader ecosystem that HoverSense intentionally excludes to keep the simulation auditable and ethical.
+
+The following table describes the algorithm or model that powers each technique, how it is typically used in production, and where HoverSense's implementation relates.
+
+| # | Technique | Algorithm / Model | How Used in Production | HoverSense Parallel |
+|---|-----------|------------------|-----------------------|---------------------|
+| <sub>1</sub> | <sub>Hover Telemetry</sub> | <sub>Euclidean velocity sampling, threshold classifiers</sub> | <sub>JavaScript SDK on publisher pages; events streamed to DMP via WebSocket or beacon API</sub> | <sub>Full simulation in `hover-tracker.js` + `rule-engine.js`</sub> |
+| <sub>2</sub> | <sub>Click Stream Analysis</sub> | <sub>Markov chain transition models, session replay</sub> | <sub>Page-view sequences modeled as state transitions; next-page prediction used for pre-fetching and segment assignment</sub> | <sub>Partial — category transition bonuses in rule engine approximate Markov-style topic transitions</sub> |
+| <sub>3</sub> | <sub>Scroll Depth Tracking</sub> | <sub>Percentile bucketing, time-decay weighting</sub> | <sub>IntersectionObserver API on publisher side; 25/50/75/100% depth milestones emitted as events</sub> | <sub>Not simulated — HoverSense focuses on hover signals only</sub> |
+| <sub>4</sub> | <sub>Search Query History</sub> | <sub>TF-IDF keyword extraction, intent classification</sub> | <sub>Query text parsed into semantic intent buckets (informational, navigational, transactional); high-value transactional queries trigger bid price increases</sub> | <sub>Not simulated — requires search engine integration</sub> |
+| <sub>5</sub> | <sub>Purchase and Cart History</sub> | <sub>Collaborative filtering, recency-frequency-monetary (RFM) scoring</sub> | <sub>RFM segments (champions, at-risk, hibernating) drive re-targeting campaigns; collaborative filtering finds "users like you also bought" cross-sells</sub> | <sub>Approximated by repeat-visit intent scoring — returning to the same card mimics cart reconsideration</sub> |
+| <sub>6</sub> | <sub>Demographic Inference</sub> | <sub>Logistic regression on behavioral proxy features</sub> | <sub>Content category mix, device type, time-of-day patterns, and vocabulary complexity used as proxies; model trained on panels with known demographics</sub> | <sub>Indirect — HoverSense's ML features (time-of-day, category spread) would feed a demographic inference layer in a full system</sub> |
+| <sub>7</sub> | <sub>Psychographic Profiling</sub> | <sub>Weighted category-to-trait mapping, Big Five model</sub> | <sub>Content consumption mapped to OCEAN trait dimensions; ad creative tone and format selected to match inferred personality type</sub> | <sub>Full simulation — `CATEGORY_TRAITS` map in `rule-engine.js` implements exactly this technique</sub> |
+| <sub>8</sub> | <sub>Contextual Targeting</sub> | <sub>NLP topic modeling (LDA, BERT embeddings)</sub> | <sub>Page text analyzed server-side or via JS SDK; topic vector matched to advertiser keyword lists; no user history required — GDPR-friendly</sub> | <sub>Not simulated — HoverSense uses hand-labeled card categories rather than NLP</sub> |
+| <sub>9</sub> | <sub>Lookalike Modeling</sub> | <sub>Gradient boosted trees, cosine similarity on user embeddings</sub> | <sub>Seed audience (e.g. past buyers) used to train a classifier; model scores all platform users and returns the top-N most similar; used to expand reach beyond known converters</sub> | <sub>Not simulated — requires cross-user data; HoverSense is single-session and single-user by design</sub> |
+| <sub>10</sub> | <sub>Device Fingerprinting</sub> | <sub>Hash of browser feature vector, canvas rendering signature</sub> | <sub>FingerprintJS and similar libraries collect 50-100 browser attributes and hash them into a persistent ID; survives cookie deletion and incognito mode in many cases</sub> | <sub>Explicitly excluded — HoverSense collects zero device attributes and performs no fingerprinting</sub> |
+| <sub>11</sub> | <sub>Cross-Site Tracking</sub> | <sub>Third-party cookies, link decoration, probabilistic ID graphs</sub> | <sub>A pixel from ad network A embedded on sites B, C, and D ties all three page visits to one identity; probabilistic graphs handle cookie-less environments using statistical matching</sub> | <sub>Explicitly excluded — all HoverSense data stays in a single tab and is cleared on refresh</sub> |
+| <sub>12</sub> | <sub>Real-Time Bidding</sub> | <sub>Second-price auction, logistic regression CTR prediction, bid shading</sub> | <sub>On each page load, a bid request containing the user's segment data is sent to a SSP; DSPs respond with bids in under 100ms; winner pays second-highest price plus one cent; CTR model determines max bid value</sub> | <sub>Simulated conceptually — the ad recommendation panel shows which ad would win the auction for the inferred profile, without actual network calls</sub> |
+
+> [!IMPORTANT]
+> Techniques 10 and 11 (device fingerprinting and cross-site tracking) are the two most privacy-invasive techniques in this table because they operate without any user interaction signal and persist across sessions and cookie resets. HoverSense explicitly does neither. Techniques 1-7 all depend on user behavior within a single session, which is why they are the focus of this simulator — they are the most tractable to demonstrate and understand without requiring cross-site infrastructure.
+
+---
+
 ## Table of Contents
 
 - [What Is HoverSense?](#what-is-hoversense)
