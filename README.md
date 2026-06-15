@@ -20,6 +20,24 @@
 
 ---
 
+## At a Glance — Problems, Techniques, and Solutions
+
+HoverSense solves six core behavioral inference problems. Each problem represents a real challenge in ad-tech systems: how do you extract a reliable signal from noisy, ambiguous, passive mouse data? The table below maps each problem to the specific technique used to solve it, the formula or algorithm applied, and where in the codebase it lives.
+
+| # | Problem | Technique Used | Formula / Algorithm | Source Module |
+|---|---------|---------------|--------------------|--------------:|
+| <sub>1</sub> | <sub>**Noisy cursor velocity** — raw mousemove events spike due to OS batching and make instantaneous speed unreliable</sub> | <sub>Throttled sampling window averaging cursor displacement over fixed intervals</sub> | <sub>avgVelocity = totalPathLength / sampleTime where pathLength uses Euclidean distance between 50ms samples</sub> | <sub>`hover-tracker.js`</sub> |
+| <sub>2</sub> | <sub>**Distinguishing intent from motion** — a long hover could be accidental; a fast hover over a card could be noise</sub> | <sub>Dual-threshold rule engine scoring duration and velocity on independent scales, then combining deltas</sub> | <sub>interestDelta = durationScore(ms) + transitionBonus; engagementDelta = velocityScore(px/s)</sub> | <sub>`rule-engine.js`</sub> |
+| <sub>3</sub> | <sub>**Mixed-scale features** — duration is in milliseconds (0-60,000) while repeat rate is a ratio (0-1), making them incompatible for a linear model</sub> | <sub>Per-feature min-max normalization with domain-specific caps; velocity additionally inverted so slow = high score</sub> | <sub>norm = clamp(raw / cap, 0, 1); normVelocity = 1 - (v / 800)</sub> | <sub>`ml-model.js`</sub> |
+| <sub>4</sub> | <sub>**Cyclical time feature** — raw hour values (0-23) make midnight and 11 PM appear maximally distant when they are adjacent</sub> | <sub>Sine cyclical encoding maps the 24-hour clock onto the unit circle, preserving circular adjacency</sub> | <sub>normTimeOfDay = sin(2 * pi * hour / 24)</sub> | <sub>`ml-model.js`</sub> |
+| <sub>5</sub> | <sub>**Producing calibrated probabilities** — need outputs in (0, 1) that are mathematically valid probabilities, not arbitrary scores</sub> | <sub>Multi-output logistic regression with pre-tuned negative biases ensuring pessimistic start (new sessions begin near 5-11% probability)</sub> | <sub>P = sigmoid(dot(w, x) + b) = 1 / (1 + e^(-z))</sub> | <sub>`ml-model.js`</sub> |
+| <sub>6</sub> | <sub>**Heatmap dynamic range** — hover durations span 100x (500ms to 50,000ms); a linear color scale makes short hovers invisible</sub> | <sub>Logarithmic heat scoring compresses the dynamic range; +1 smoothing prevents log(0) on unvisited cards</sub> | <sub>heat = log10(durationMs + 1) * 10 + (repeatCount * 5), normalized to session max</sub> | <sub>`heatmap.js`</sub> |
+
+> [!NOTE]
+> Each row in the table above is a self-contained engineering decision. Problems 1-2 operate on raw events (capture layer). Problems 3-5 operate on aggregated session statistics (ML layer). Problem 6 runs in parallel as the visualization layer. Together they form the complete signal-processing chain from DOM event to behavioral probability.
+
+---
+
 ## Table of Contents
 
 - [What Is HoverSense?](#what-is-hoversense)
